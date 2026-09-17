@@ -4,6 +4,7 @@
 .model-cache/
 store.db
 error.log
+.locks/
 __pycache__/
 *.pyc
 .pytest_cache/

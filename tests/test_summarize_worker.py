@@ -70,12 +70,20 @@ def test_parse_observations_skips_items_missing_summary():
 
 
 import json as jsonlib
+import os
+import time
 
 import pytest
 
 import summarize_worker
 from lib.db import get_connection, insert_raw_event, get_observations, get_unprocessed_events
 from lib.guard import NO_HOOKS_ENV
+
+
+@pytest.fixture(autouse=True)
+def isolate_lock_dir(tmp_path, monkeypatch):
+    """Keep every test's session locks out of the real install's .locks dir."""
+    monkeypatch.setattr(summarize_worker, "LOCK_DIR", str(tmp_path / "locks"))
 
 
 def test_call_claude_headless_sets_guard_env_and_pipes_prompt(monkeypatch):
@@ -198,3 +206,66 @@ def test_main_marks_processed_even_when_llm_returns_nothing_noteworthy(tmp_path,
     conn = get_connection(db_path)
     assert get_unprocessed_events(conn, "sess1") == []
     assert get_observations(conn, project="/proj") == []
+
+
+def _seed_three_events(db_path, session_id="sess1"):
+    conn = get_connection(db_path)
+    insert_raw_event(conn, "t", session_id, "/proj", "Edit", "{}")
+    insert_raw_event(conn, "t", session_id, "/proj", "Write", "{}")
+    insert_raw_event(conn, "t", session_id, "/proj", "Bash", "{}")
+    conn.commit()
+    conn.close()
+
+
+def test_main_bails_out_when_lock_already_held(tmp_path, monkeypatch):
+    db_path = str(tmp_path / "test.db")
+    _seed_three_events(db_path)
+
+    assert summarize_worker._acquire_lock("sess1") is not None  # a worker is "running"
+
+    called = {"count": 0}
+    monkeypatch.setattr(
+        summarize_worker,
+        "call_claude_headless",
+        lambda prompt: called.__setitem__("count", called["count"] + 1),
+    )
+
+    summarize_worker.main("sess1", db_path=db_path)
+
+    assert called["count"] == 0
+    conn = get_connection(db_path)
+    assert len(get_unprocessed_events(conn, "sess1")) == 3
+    conn.close()
+
+
+def test_main_reclaims_a_stale_lock(tmp_path, monkeypatch):
+    db_path = str(tmp_path / "test.db")
+    _seed_three_events(db_path)
+
+    lock_path = summarize_worker._acquire_lock("sess1")
+    old = time.time() - summarize_worker.LOCK_STALE_SECONDS - 60
+    os.utime(lock_path, (old, old))
+
+    fake_response = jsonlib.dumps(
+        [{"category": "bugfix", "summary": "Fixed the thing", "related_files": []}]
+    )
+    monkeypatch.setattr(summarize_worker, "call_claude_headless", lambda prompt: fake_response)
+    monkeypatch.setattr(summarize_worker, "embed_text", lambda text: [0.1, 0.2, 0.3])
+
+    summarize_worker.main("sess1", db_path=db_path)
+
+    conn = get_connection(db_path)
+    assert len(get_observations(conn, project="/proj")) == 1
+    assert get_unprocessed_events(conn, "sess1") == []
+    conn.close()
+
+
+def test_main_releases_lock_after_success(tmp_path, monkeypatch):
+    db_path = str(tmp_path / "test.db")
+    _seed_three_events(db_path)
+
+    monkeypatch.setattr(summarize_worker, "call_claude_headless", lambda prompt: "[]")
+
+    summarize_worker.main("sess1", db_path=db_path)
+
+    assert not os.path.exists(os.path.join(summarize_worker.LOCK_DIR, "sess1.lock"))

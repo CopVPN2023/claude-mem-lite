@@ -4,6 +4,7 @@ import os
 import re
 import subprocess
 import sys
+import time
 import traceback
 from datetime import datetime, timezone
 
@@ -14,9 +15,31 @@ from lib.embeddings import embed_text, pack_embedding
 from lib.guard import NO_HOOKS_ENV
 
 ERROR_LOG = os.path.join(os.path.dirname(os.path.abspath(__file__)), "error.log")
+LOCK_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".locks")
+LOCK_STALE_SECONDS = 300
 
 READ_ONLY_TOOLS = {"Read", "Grep", "Glob", "WebSearch"}
 CATEGORIES = {"bugfix", "feature", "refactor", "change", "discovery", "decision", "security"}
+
+
+def _acquire_lock(session_id: str):
+    """One worker per session. Returns the lock path, or None if another holds it."""
+    os.makedirs(LOCK_DIR, exist_ok=True)
+    lock_path = os.path.join(LOCK_DIR, f"{session_id}.lock")
+    try:
+        fd = os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        os.close(fd)
+        return lock_path
+    except FileExistsError:
+        try:
+            if time.time() - os.path.getmtime(lock_path) > LOCK_STALE_SECONDS:
+                os.remove(lock_path)
+                fd = os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+                os.close(fd)
+                return lock_path
+        except (FileNotFoundError, FileExistsError):
+            pass
+        return None
 
 
 def skip_summarization(events: list) -> bool:
@@ -90,6 +113,9 @@ def call_claude_headless(prompt: str) -> str:
 
 
 def main(session_id: str, db_path=None) -> None:
+    lock_path = _acquire_lock(session_id)
+    if lock_path is None:
+        return
     conn = get_connection(db_path)
     try:
         events = get_unprocessed_events(conn, session_id)
@@ -122,6 +148,10 @@ def main(session_id: str, db_path=None) -> None:
             pass
     finally:
         conn.close()
+        try:
+            os.remove(lock_path)
+        except FileNotFoundError:
+            pass
 
 
 if __name__ == "__main__":
