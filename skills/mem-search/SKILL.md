@@ -10,6 +10,13 @@ a decision, a piece of context — that isn't in the curated MEMORY.md files.
 This is a granular, automatic activity log, not curated memory: expect many
 small, specific entries rather than high-level facts.
 
+For "find me the entries about X" this is the right tool — cheap (no LLM
+call), raw hits you inspect yourself. If the question instead needs
+synthesis across several observations ("what have I actually done about X",
+"did we ever fix Y"), use the `knowledge-agent` skill instead — it makes
+one LLM call to turn the same underlying search into a cited, conversational
+answer.
+
 Run:
 
 ```bash
