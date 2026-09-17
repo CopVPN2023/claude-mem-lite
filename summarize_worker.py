@@ -4,6 +4,7 @@ import os
 import re
 import subprocess
 import sys
+import traceback
 from datetime import datetime, timezone
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -11,6 +12,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from lib.db import get_connection, get_unprocessed_events, mark_processed, insert_observation
 from lib.embeddings import embed_text, pack_embedding
 from lib.guard import NO_HOOKS_ENV
+
+ERROR_LOG = os.path.join(os.path.dirname(os.path.abspath(__file__)), "error.log")
 
 READ_ONLY_TOOLS = {"Read", "Grep", "Glob", "WebSearch"}
 CATEGORIES = {"bugfix", "feature", "refactor", "change", "discovery", "decision", "security"}
@@ -79,34 +82,46 @@ def call_claude_headless(prompt: str) -> str:
         env=env,
         timeout=CLAUDE_TIMEOUT_SECONDS,
     )
+    if result.returncode != 0:
+        raise RuntimeError(
+            f"claude -p exited {result.returncode}: {result.stderr or result.stdout}"
+        )
     return result.stdout
 
 
 def main(session_id: str, db_path=None) -> None:
     conn = get_connection(db_path)
-    events = get_unprocessed_events(conn, session_id)
-    if skip_summarization(events):
+    try:
+        events = get_unprocessed_events(conn, session_id)
+        if skip_summarization(events):
+            return
+
+        response = call_claude_headless(build_summarize_prompt(events))
+        observations = parse_observations(response)
+
+        ts = datetime.now(timezone.utc).isoformat()
+        project = events[0]["project"]
+        for obs in observations:
+            vec = embed_text(obs["summary"])
+            blob = pack_embedding(vec)
+            insert_observation(
+                conn, ts, session_id, project,
+                obs["category"], obs["summary"],
+                json.dumps(obs["related_files"]), blob,
+            )
+
+        # Only after everything that can fail has succeeded: any exception above
+        # leaves the rows processed = 0 so the next Stop hook retries them.
+        mark_processed(conn, [e["id"] for e in events])
+        conn.commit()
+    except Exception:
+        try:
+            with open(ERROR_LOG, "a") as f:
+                f.write(traceback.format_exc() + "\n")
+        except Exception:
+            pass
+    finally:
         conn.close()
-        return
-
-    prompt = build_summarize_prompt(events)
-    response = call_claude_headless(prompt)
-    observations = parse_observations(response)
-
-    ts = datetime.now(timezone.utc).isoformat()
-    project = events[0]["project"]
-    for obs in observations:
-        vec = embed_text(obs["summary"])
-        blob = pack_embedding(vec)
-        insert_observation(
-            conn, ts, session_id, project,
-            obs["category"], obs["summary"],
-            json.dumps(obs["related_files"]), blob,
-        )
-
-    mark_processed(conn, [e["id"] for e in events])
-    conn.commit()
-    conn.close()
 
 
 if __name__ == "__main__":

@@ -71,6 +71,8 @@ def test_parse_observations_skips_items_missing_summary():
 
 import json as jsonlib
 
+import pytest
+
 import summarize_worker
 from lib.db import get_connection, insert_raw_event, get_observations, get_unprocessed_events
 from lib.guard import NO_HOOKS_ENV
@@ -80,6 +82,7 @@ def test_call_claude_headless_sets_guard_env_and_pipes_prompt(monkeypatch):
     captured = {}
 
     class FakeResult:
+        returncode = 0
         stdout = "[]"
 
     def fake_run(cmd, input, capture_output, text, env, timeout):
@@ -97,6 +100,45 @@ def test_call_claude_headless_sets_guard_env_and_pipes_prompt(monkeypatch):
     assert captured["input"] == "summarize this"
     assert captured["env"][NO_HOOKS_ENV] == "1"
     assert captured["cmd"] == ["claude", "-p"]
+
+
+def test_call_claude_headless_raises_on_nonzero_returncode(monkeypatch):
+    class FakeResult:
+        returncode = 1
+        stdout = "some error text"
+        stderr = ""
+
+    monkeypatch.setattr(
+        summarize_worker.subprocess, "run", lambda *a, **kw: FakeResult()
+    )
+
+    with pytest.raises(RuntimeError):
+        summarize_worker.call_claude_headless("summarize this")
+
+
+def test_main_leaves_rows_unprocessed_when_claude_call_fails(tmp_path, monkeypatch):
+    db_path = str(tmp_path / "test.db")
+    conn = get_connection(db_path)
+    insert_raw_event(conn, "t", "sess1", "/proj", "Edit", "{}")
+    insert_raw_event(conn, "t", "sess1", "/proj", "Write", "{}")
+    insert_raw_event(conn, "t", "sess1", "/proj", "Bash", "{}")
+    conn.commit()
+    before = get_unprocessed_events(conn, "sess1")
+    conn.close()
+
+    def boom(prompt):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(summarize_worker, "call_claude_headless", boom)
+    monkeypatch.setattr(summarize_worker, "ERROR_LOG", str(tmp_path / "error.log"))
+
+    summarize_worker.main("sess1", db_path=db_path)
+
+    conn = get_connection(db_path)
+    assert get_unprocessed_events(conn, "sess1") == before
+    assert get_observations(conn, project="/proj") == []
+    conn.close()
+    assert "boom" in (tmp_path / "error.log").read_text()
 
 
 def test_main_writes_observations_and_marks_processed(tmp_path, monkeypatch):
