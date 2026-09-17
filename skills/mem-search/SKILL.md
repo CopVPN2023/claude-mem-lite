@@ -15,7 +15,9 @@ call), raw hits you inspect yourself. If the question instead needs
 synthesis across several observations ("what have I actually done about X",
 "did we ever fix Y"), use the `knowledge-agent` skill instead — it makes
 one LLM call to turn the same underlying search into a cited, conversational
-answer.
+answer. If a specific hit needs its surrounding chronological context
+("what led up to this", "what happened right after"), use the `timeline`
+skill instead of re-searching around the same date.
 
 Run:
 

@@ -26,7 +26,7 @@ embed_text("warmup")
 print("Embedding model ready.")
 PY
 
-chmod +x capture.py summarize_trigger.py summarize_worker.py digest.py search.py knowledge_agent.py
+chmod +x capture.py summarize_trigger.py summarize_worker.py digest.py search.py knowledge_agent.py timeline.py
 
 echo "Installing mem-search skill..."
 mkdir -p "$HOME/.claude/skills"
@@ -34,6 +34,9 @@ ln -sfn "$HERE/skills/mem-search" "$HOME/.claude/skills/mem-search"
 
 echo "Installing knowledge-agent skill..."
 ln -sfn "$HERE/skills/knowledge-agent" "$HOME/.claude/skills/knowledge-agent"
+
+echo "Installing timeline skill..."
+ln -sfn "$HERE/skills/timeline" "$HOME/.claude/skills/timeline"
 
 echo ""
 echo "Setup complete."
