@@ -1,0 +1,79 @@
+import sqlite3
+import subprocess
+from pathlib import Path
+
+DB_PATH = Path(__file__).resolve().parent.parent / "store.db"
+
+SCHEMA = """
+CREATE TABLE IF NOT EXISTS raw_events (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  ts TEXT NOT NULL,
+  session_id TEXT NOT NULL,
+  project TEXT NOT NULL,
+  tool_name TEXT,
+  tool_input TEXT,
+  processed INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_raw_session_unprocessed ON raw_events(session_id, processed);
+
+CREATE TABLE IF NOT EXISTS observations (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  ts TEXT NOT NULL,
+  session_id TEXT NOT NULL,
+  project TEXT NOT NULL,
+  category TEXT NOT NULL,
+  summary TEXT NOT NULL,
+  related_files TEXT,
+  embedding BLOB NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_obs_project ON observations(project);
+"""
+
+
+def get_connection(db_path=None):
+    path = str(db_path) if db_path else str(DB_PATH)
+    conn = sqlite3.connect(path)
+    conn.row_factory = sqlite3.Row
+    conn.executescript(SCHEMA)
+    return conn
+
+
+def derive_project(cwd: str) -> str:
+    try:
+        result = subprocess.run(
+            ["git", "-C", cwd, "rev-parse", "--show-toplevel"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        if result.returncode == 0:
+            return result.stdout.strip()
+    except Exception:
+        pass
+    return cwd
+
+
+def insert_raw_event(conn, ts, session_id, project, tool_name, tool_input) -> int:
+    cur = conn.execute(
+        "INSERT INTO raw_events (ts, session_id, project, tool_name, tool_input, processed) "
+        "VALUES (?, ?, ?, ?, ?, 0)",
+        (ts, session_id, project, tool_name, tool_input),
+    )
+    return cur.lastrowid
+
+
+def get_unprocessed_events(conn, session_id: str) -> list:
+    cur = conn.execute(
+        "SELECT * FROM raw_events WHERE session_id = ? AND processed = 0 ORDER BY id",
+        (session_id,),
+    )
+    return [dict(row) for row in cur.fetchall()]
+
+
+def mark_processed(conn, ids: list) -> None:
+    if not ids:
+        return
+    placeholders = ",".join("?" for _ in ids)
+    conn.execute(
+        f"UPDATE raw_events SET processed = 1 WHERE id IN ({placeholders})", ids
+    )
