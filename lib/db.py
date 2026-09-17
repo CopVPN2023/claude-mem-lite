@@ -89,7 +89,7 @@ def insert_observation(conn, ts, session_id, project, category, summary, related
 
 
 def get_observations(conn, project=None) -> list:
-    if project:
+    if project is not None:
         cur = conn.execute("SELECT * FROM observations WHERE project = ?", (project,))
     else:
         cur = conn.execute("SELECT * FROM observations")

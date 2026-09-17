@@ -104,6 +104,19 @@ def test_get_observations_filters_by_project(tmp_path):
     assert len(get_observations(conn, project=None)) == 2
 
 
+def test_get_observations_empty_project_is_a_filter_not_a_wildcard(tmp_path):
+    from lib.embeddings import pack_embedding
+    from lib.db import insert_observation, get_observations
+
+    conn = get_connection(str(tmp_path / "test.db"))
+    blob = pack_embedding([0.1])
+    insert_observation(conn, "t", "s", "/proj-a", "change", "A", "[]", blob)
+    insert_observation(conn, "t", "s", "/proj-b", "change", "B", "[]", blob)
+    conn.commit()
+
+    assert get_observations(conn, project="") == []
+
+
 def test_get_recent_observations_orders_by_ts_desc_and_limits(tmp_path):
     from lib.embeddings import pack_embedding
     from lib.db import insert_observation, get_recent_observations
