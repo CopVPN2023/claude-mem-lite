@@ -77,3 +77,28 @@ def mark_processed(conn, ids: list) -> None:
     conn.execute(
         f"UPDATE raw_events SET processed = 1 WHERE id IN ({placeholders})", ids
     )
+
+
+def insert_observation(conn, ts, session_id, project, category, summary, related_files, embedding) -> int:
+    cur = conn.execute(
+        "INSERT INTO observations (ts, session_id, project, category, summary, related_files, embedding) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?)",
+        (ts, session_id, project, category, summary, related_files, embedding),
+    )
+    return cur.lastrowid
+
+
+def get_observations(conn, project=None) -> list:
+    if project:
+        cur = conn.execute("SELECT * FROM observations WHERE project = ?", (project,))
+    else:
+        cur = conn.execute("SELECT * FROM observations")
+    return [dict(row) for row in cur.fetchall()]
+
+
+def get_recent_observations(conn, project: str, limit: int = 5) -> list:
+    cur = conn.execute(
+        "SELECT * FROM observations WHERE project = ? ORDER BY ts DESC LIMIT ?",
+        (project, limit),
+    )
+    return [dict(row) for row in cur.fetchall()]
