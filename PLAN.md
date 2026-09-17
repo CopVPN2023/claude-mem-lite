@@ -1256,7 +1256,7 @@ git commit -m "feat: summarize_trigger Stop hook (detached, non-blocking)"
 
 **Interfaces:**
 - Consumes: `lib.db.get_connection`, `lib.db.derive_project`,
-  `lib.db.get_recent_observations`
+  `lib.db.get_recent_observations`, `lib.guard.hooks_disabled`
 - Produces: `DIGEST_LIMIT: int`, `build_digest(observations: list[dict]) -> str`,
   `main(db_path=None) -> None`
 
@@ -1318,6 +1318,23 @@ def test_main_never_raises_on_malformed_stdin(tmp_path, monkeypatch):
     db_path = str(tmp_path / "test.db")
     monkeypatch.setattr("sys.stdin", io.StringIO("not json"))
     digest.main(db_path=db_path)  # must not raise
+
+
+def test_main_noop_when_hooks_disabled(tmp_path, monkeypatch, capsys):
+    db_path = str(tmp_path / "test.db")
+    conn = get_connection(db_path)
+    blob = pack_embedding([0.1])
+    insert_observation(conn, "2026-01-01T00:00:00Z", "s", str(tmp_path), "bugfix", "Fixed X", "[]", blob)
+    conn.commit()
+    conn.close()
+
+    monkeypatch.setenv("CLAUDE_MEM_LITE_NO_HOOKS", "1")
+    monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps({"cwd": str(tmp_path)})))
+
+    digest.main(db_path=db_path)
+
+    captured = capsys.readouterr()
+    assert captured.out == ""
 ```
 
 - [ ] **Step 2: Run tests to verify they fail**
@@ -1337,6 +1354,7 @@ import traceback
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from lib.db import get_connection, derive_project, get_recent_observations
+from lib.guard import hooks_disabled
 
 DIGEST_LIMIT = 5
 ERROR_LOG = os.path.join(os.path.dirname(os.path.abspath(__file__)), "error.log")
@@ -1352,6 +1370,8 @@ def build_digest(observations: list) -> str:
 
 
 def main(db_path=None):
+    if hooks_disabled():
+        return
     try:
         payload = json.load(sys.stdin)
         cwd = payload.get("cwd", os.getcwd())
@@ -1377,7 +1397,7 @@ if __name__ == "__main__":
 - [ ] **Step 4: Run tests to verify they pass**
 
 Run: `python3 -m pytest tests/test_digest.py -v`
-Expected: 5 passed
+Expected: 6 passed
 
 - [ ] **Step 5: Commit**
 
@@ -1671,7 +1691,10 @@ before relying on it — this log is a memory aid, not a source of truth.
 
 Run: `cd ~/claude-mem-lite && chmod +x setup.sh && ./setup.sh`
 Expected: venv created, all tests pass (should print the cumulative test
-count from every prior task — 42 passed), `store.db` exists,
+count from every prior task — 52 passed: 9 in test_db.py, 3 in
+test_guard.py, 4 in test_capture.py, 5 in test_embeddings.py, 16 in
+test_summarize_worker.py, 4 in test_summarize_trigger.py, 6 in
+test_digest.py, 5 in test_search.py), `store.db` exists,
 `.model-cache/` exists, the settings snippet is printed at the end.
 
 - [ ] **Step 3: Commit**
