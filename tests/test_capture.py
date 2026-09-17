@@ -57,3 +57,14 @@ def test_capture_noop_when_hooks_disabled(tmp_path, monkeypatch):
 
     conn = get_connection(str(db_path))
     assert get_unprocessed_events(conn, "sess1") == []
+
+
+def test_capture_swallows_log_write_failure(tmp_path, monkeypatch):
+    db_path = tmp_path / "test.db"
+    # Point ERROR_LOG to a nonexistent directory to cause file-write to fail
+    nonexistent_log = tmp_path / "nonexistent" / "dir" / "error.log"
+    monkeypatch.setattr("capture.ERROR_LOG", str(nonexistent_log))
+    # Feed malformed stdin to trigger the exception handler
+    monkeypatch.setattr("sys.stdin", io.StringIO("not json"))
+    # This must not raise, even though both stdin parsing and log-write will fail
+    capture.main(db_path=str(db_path))

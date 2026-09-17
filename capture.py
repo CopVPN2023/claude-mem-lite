@@ -29,8 +29,11 @@ def main(db_path=None):
         conn.commit()
         conn.close()
     except Exception:
-        with open(ERROR_LOG, "a") as f:
-            f.write(traceback.format_exc() + "\n")
+        try:
+            with open(ERROR_LOG, "a") as f:
+                f.write(traceback.format_exc() + "\n")
+        except Exception:
+            pass
 
 
 if __name__ == "__main__":
