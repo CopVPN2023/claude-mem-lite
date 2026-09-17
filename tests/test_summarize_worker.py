@@ -99,7 +99,7 @@ def test_call_claude_headless_sets_guard_env_and_pipes_prompt(monkeypatch):
     assert result == "[]"
     assert captured["input"] == "summarize this"
     assert captured["env"][NO_HOOKS_ENV] == "1"
-    assert captured["cmd"] == ["claude", "-p"]
+    assert captured["cmd"] == ["claude", "-p", "--model", "sonnet", "--strict-mcp-config"]
 
 
 def test_call_claude_headless_raises_on_nonzero_returncode(monkeypatch):

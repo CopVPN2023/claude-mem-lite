@@ -75,7 +75,7 @@ def call_claude_headless(prompt: str) -> str:
     env = os.environ.copy()
     env[NO_HOOKS_ENV] = "1"
     result = subprocess.run(
-        ["claude", "-p"],
+        ["claude", "-p", "--model", "sonnet", "--strict-mcp-config"],
         input=prompt,
         capture_output=True,
         text=True,
