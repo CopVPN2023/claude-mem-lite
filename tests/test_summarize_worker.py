@@ -260,6 +260,31 @@ def test_main_reclaims_a_stale_lock(tmp_path, monkeypatch):
     conn.close()
 
 
+def test_main_logs_and_returns_when_lock_acquisition_fails(tmp_path, monkeypatch):
+    db_path = str(tmp_path / "test.db")
+    _seed_three_events(db_path)
+    monkeypatch.setattr(summarize_worker, "ERROR_LOG", str(tmp_path / "error.log"))
+
+    def boom(session_id):
+        raise PermissionError("boom")
+
+    monkeypatch.setattr(summarize_worker, "_acquire_lock", boom)
+    called = {"count": 0}
+    monkeypatch.setattr(
+        summarize_worker,
+        "call_claude_headless",
+        lambda prompt: called.__setitem__("count", called["count"] + 1),
+    )
+
+    summarize_worker.main("sess1", db_path=db_path)
+
+    assert called["count"] == 0
+    assert "boom" in (tmp_path / "error.log").read_text()
+    conn = get_connection(db_path)
+    assert len(get_unprocessed_events(conn, "sess1")) == 3
+    conn.close()
+
+
 def test_main_releases_lock_after_success(tmp_path, monkeypatch):
     db_path = str(tmp_path / "test.db")
     _seed_three_events(db_path)

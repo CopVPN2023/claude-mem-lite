@@ -113,11 +113,13 @@ def call_claude_headless(prompt: str) -> str:
 
 
 def main(session_id: str, db_path=None) -> None:
-    lock_path = _acquire_lock(session_id)
-    if lock_path is None:
-        return
-    conn = get_connection(db_path)
+    lock_path = None
+    conn = None
     try:
+        lock_path = _acquire_lock(session_id)
+        if lock_path is None:
+            return
+        conn = get_connection(db_path)
         events = get_unprocessed_events(conn, session_id)
         if skip_summarization(events):
             return
@@ -147,11 +149,13 @@ def main(session_id: str, db_path=None) -> None:
         except Exception:
             pass
     finally:
-        conn.close()
-        try:
-            os.remove(lock_path)
-        except FileNotFoundError:
-            pass
+        if conn is not None:
+            conn.close()
+        if lock_path is not None:
+            try:
+                os.remove(lock_path)
+            except FileNotFoundError:
+                pass
 
 
 if __name__ == "__main__":
