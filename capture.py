@@ -10,6 +10,7 @@ from lib.db import get_connection, derive_project, insert_raw_event
 from lib.guard import hooks_disabled
 
 ERROR_LOG = os.path.join(os.path.dirname(os.path.abspath(__file__)), "error.log")
+TOOL_RESPONSE_TRUNCATE = 2000
 
 
 def main(db_path=None):
@@ -21,11 +22,12 @@ def main(db_path=None):
         cwd = payload.get("cwd", os.getcwd())
         tool_name = payload.get("tool_name", "")
         tool_input = json.dumps(payload.get("tool_input", {}))[:500]
+        tool_response = json.dumps(payload.get("tool_response", {}))[:TOOL_RESPONSE_TRUNCATE]
         project = derive_project(cwd)
         ts = datetime.now(timezone.utc).isoformat()
 
         conn = get_connection(db_path)
-        insert_raw_event(conn, ts, session_id, project, tool_name, tool_input)
+        insert_raw_event(conn, ts, session_id, project, tool_name, tool_input, tool_response)
         conn.commit()
         conn.close()
     except Exception:

@@ -37,7 +37,11 @@ def main(argv=None, db_path=None):
     query_vec = embed_text(args.query)
     top = rank_observations(query_vec, rows, args.limit)
     results = [
-        {"id": r["id"], "ts": r["ts"], "project": r["project"], "category": r["category"], "summary": r["summary"]}
+        {
+            "id": r["id"], "ts": r["ts"], "project": r["project"],
+            "category": r["category"], "summary": r["summary"],
+            "related_raw_event_ids": json.loads(r["related_raw_event_ids"]) if r["related_raw_event_ids"] else [],
+        }
         for r in top
     ]
     print(json.dumps(results, indent=2))

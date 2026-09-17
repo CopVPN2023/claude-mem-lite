@@ -1,3 +1,4 @@
+import sqlite3
 import subprocess
 from lib.db import (
     get_connection,
@@ -5,6 +6,7 @@ from lib.db import (
     insert_raw_event,
     get_unprocessed_events,
     mark_processed,
+    get_raw_events_by_ids,
 )
 
 
@@ -115,6 +117,99 @@ def test_get_observations_empty_project_is_a_filter_not_a_wildcard(tmp_path):
     conn.commit()
 
     assert get_observations(conn, project="") == []
+
+
+def test_migration_adds_new_columns_to_a_legacy_database(tmp_path):
+    db_path = str(tmp_path / "legacy.db")
+    # Build the pre-migration schema by hand, without tool_response/related_raw_event_ids.
+    legacy_conn = sqlite3.connect(db_path)
+    legacy_conn.executescript(
+        """
+        CREATE TABLE raw_events (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          ts TEXT NOT NULL,
+          session_id TEXT NOT NULL,
+          project TEXT NOT NULL,
+          tool_name TEXT,
+          tool_input TEXT,
+          processed INTEGER NOT NULL DEFAULT 0
+        );
+        CREATE TABLE observations (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          ts TEXT NOT NULL,
+          session_id TEXT NOT NULL,
+          project TEXT NOT NULL,
+          category TEXT NOT NULL,
+          summary TEXT NOT NULL,
+          related_files TEXT,
+          embedding BLOB NOT NULL
+        );
+        """
+    )
+    legacy_conn.close()
+
+    conn = get_connection(db_path)  # should migrate in place, not error
+
+    raw_columns = {row["name"] for row in conn.execute("PRAGMA table_info(raw_events)")}
+    obs_columns = {row["name"] for row in conn.execute("PRAGMA table_info(observations)")}
+    assert "tool_response" in raw_columns
+    assert "related_raw_event_ids" in obs_columns
+
+    # And the migration is idempotent — opening it again must not raise.
+    get_connection(db_path)
+
+
+def test_insert_raw_event_stores_tool_response(tmp_path):
+    conn = get_connection(str(tmp_path / "test.db"))
+    event_id = insert_raw_event(
+        conn, "t", "sess1", "/proj", "Bash", '{"command": "ls"}', tool_response='{"stdout": "a.py"}'
+    )
+    conn.commit()
+
+    events = get_unprocessed_events(conn, "sess1")
+    assert events[0]["id"] == event_id
+    assert events[0]["tool_response"] == '{"stdout": "a.py"}'
+
+
+def test_insert_raw_event_tool_response_defaults_to_none(tmp_path):
+    conn = get_connection(str(tmp_path / "test.db"))
+    insert_raw_event(conn, "t", "sess1", "/proj", "Edit", "{}")
+    conn.commit()
+
+    events = get_unprocessed_events(conn, "sess1")
+    assert events[0]["tool_response"] is None
+
+
+def test_insert_observation_stores_related_raw_event_ids(tmp_path):
+    from lib.embeddings import pack_embedding
+    from lib.db import insert_observation, get_observations
+
+    conn = get_connection(str(tmp_path / "test.db"))
+    blob = pack_embedding([0.1])
+    insert_observation(
+        conn, "t", "s", "/proj", "bugfix", "Fixed it", "[]", blob,
+        related_raw_event_ids="[1, 2, 3]",
+    )
+    conn.commit()
+
+    rows = get_observations(conn, project="/proj")
+    assert rows[0]["related_raw_event_ids"] == "[1, 2, 3]"
+
+
+def test_get_raw_events_by_ids_returns_matching_rows(tmp_path):
+    conn = get_connection(str(tmp_path / "test.db"))
+    id1 = insert_raw_event(conn, "t", "s", "/proj", "Edit", "{}", tool_response="r1")
+    id2 = insert_raw_event(conn, "t", "s", "/proj", "Bash", "{}", tool_response="r2")
+    insert_raw_event(conn, "t", "s", "/proj", "Read", "{}", tool_response="r3")
+    conn.commit()
+
+    rows = get_raw_events_by_ids(conn, [id1, id2])
+    assert {r["tool_response"] for r in rows} == {"r1", "r2"}
+
+
+def test_get_raw_events_by_ids_empty_list_returns_empty(tmp_path):
+    conn = get_connection(str(tmp_path / "test.db"))
+    assert get_raw_events_by_ids(conn, []) == []
 
 
 def test_get_recent_observations_orders_by_ts_desc_and_limits(tmp_path):

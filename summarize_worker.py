@@ -129,6 +129,7 @@ def main(session_id: str, db_path=None) -> None:
 
         ts = datetime.now(timezone.utc).isoformat()
         project = events[0]["project"]
+        raw_event_ids = json.dumps([e["id"] for e in events])
         for obs in observations:
             vec = embed_text(obs["summary"])
             blob = pack_embedding(vec)
@@ -136,6 +137,7 @@ def main(session_id: str, db_path=None) -> None:
                 conn, ts, session_id, project,
                 obs["category"], obs["summary"],
                 json.dumps(obs["related_files"]), blob,
+                raw_event_ids,
             )
 
         # Only after everything that can fail has succeeded: any exception above

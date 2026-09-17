@@ -54,6 +54,41 @@ def test_main_prints_ranked_results(tmp_path, monkeypatch, capsys):
     assert results[0]["summary"] == "Fixed the login bug"
 
 
+def test_main_includes_related_raw_event_ids(tmp_path, monkeypatch, capsys):
+    db_path = str(tmp_path / "test.db")
+    conn = get_connection(db_path)
+    insert_observation(
+        conn, "t", "s", "/proj", "bugfix", "Fixed the login bug", "[]", pack_embedding([1.0, 0.0]),
+        related_raw_event_ids="[5, 6]",
+    )
+    conn.commit()
+    conn.close()
+
+    monkeypatch.setattr(search, "embed_text", lambda text: [1.0, 0.0])
+
+    search.main(["login bug"], db_path=db_path)
+
+    captured = capsys.readouterr()
+    results = json.loads(captured.out)
+    assert results[0]["related_raw_event_ids"] == [5, 6]
+
+
+def test_main_related_raw_event_ids_defaults_to_empty_list(tmp_path, monkeypatch, capsys):
+    db_path = str(tmp_path / "test.db")
+    conn = get_connection(db_path)
+    insert_observation(conn, "t", "s", "/proj", "bugfix", "Fixed the login bug", "[]", pack_embedding([1.0, 0.0]))
+    conn.commit()
+    conn.close()
+
+    monkeypatch.setattr(search, "embed_text", lambda text: [1.0, 0.0])
+
+    search.main(["login bug"], db_path=db_path)
+
+    captured = capsys.readouterr()
+    results = json.loads(captured.out)
+    assert results[0]["related_raw_event_ids"] == []
+
+
 def test_main_filters_by_project(tmp_path, monkeypatch, capsys):
     db_path = str(tmp_path / "test.db")
     conn = get_connection(db_path)

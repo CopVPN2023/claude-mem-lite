@@ -81,6 +81,23 @@ def test_main_resolves_anchor_by_query(tmp_path, monkeypatch, capsys):
     assert results[1]["is_anchor"] is True
 
 
+def test_main_includes_related_raw_event_ids(tmp_path, capsys):
+    db_path = str(tmp_path / "test.db")
+    conn = get_connection(db_path)
+    oid = insert_observation(
+        conn, "2026-01-01T00:00:00Z", "s", "/proj", "bugfix", "Fixed it", "[]",
+        pack_embedding([1.0, 0.0]), related_raw_event_ids="[9, 10]",
+    )
+    conn.commit()
+    conn.close()
+
+    timeline.main(["--anchor", str(oid), "--before", "0", "--after", "0"], db_path=db_path)
+
+    captured = capsys.readouterr()
+    results = json.loads(captured.out)
+    assert results[0]["related_raw_event_ids"] == [9, 10]
+
+
 def test_main_filters_by_project(tmp_path, capsys):
     db_path = str(tmp_path / "test.db")
     conn = get_connection(db_path)

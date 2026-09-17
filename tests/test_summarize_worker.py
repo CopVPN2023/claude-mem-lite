@@ -173,6 +173,28 @@ def test_main_writes_observations_and_marks_processed(tmp_path, monkeypatch):
     assert get_unprocessed_events(conn, "sess1") == []
 
 
+def test_main_records_related_raw_event_ids_on_observations(tmp_path, monkeypatch):
+    db_path = str(tmp_path / "test.db")
+    conn = get_connection(db_path)
+    id1 = insert_raw_event(conn, "t", "sess1", "/proj", "Edit", "{}")
+    id2 = insert_raw_event(conn, "t", "sess1", "/proj", "Write", "{}")
+    id3 = insert_raw_event(conn, "t", "sess1", "/proj", "Bash", "{}")
+    conn.commit()
+    conn.close()
+
+    fake_response = jsonlib.dumps(
+        [{"category": "bugfix", "summary": "Fixed the thing", "related_files": ["a.py"]}]
+    )
+    monkeypatch.setattr(summarize_worker, "call_claude_headless", lambda prompt: fake_response)
+    monkeypatch.setattr(summarize_worker, "embed_text", lambda text: [0.1, 0.2, 0.3])
+
+    summarize_worker.main("sess1", db_path=db_path)
+
+    conn = get_connection(db_path)
+    observations = get_observations(conn, project="/proj")
+    assert jsonlib.loads(observations[0]["related_raw_event_ids"]) == [id1, id2, id3]
+
+
 def test_main_skips_when_below_threshold(tmp_path, monkeypatch):
     db_path = str(tmp_path / "test.db")
     conn = get_connection(db_path)

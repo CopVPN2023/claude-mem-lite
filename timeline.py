@@ -66,6 +66,7 @@ def main(argv=None, db_path=None) -> None:
             "id": r["id"], "ts": r["ts"], "project": r["project"],
             "category": r["category"], "summary": r["summary"],
             "is_anchor": r["is_anchor"],
+            "related_raw_event_ids": json.loads(r["related_raw_event_ids"]) if r["related_raw_event_ids"] else [],
         }
         for r in window
     ]

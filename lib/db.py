@@ -12,6 +12,7 @@ CREATE TABLE IF NOT EXISTS raw_events (
   project TEXT NOT NULL,
   tool_name TEXT,
   tool_input TEXT,
+  tool_response TEXT,
   processed INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_raw_session_unprocessed ON raw_events(session_id, processed);
@@ -24,10 +25,28 @@ CREATE TABLE IF NOT EXISTS observations (
   category TEXT NOT NULL,
   summary TEXT NOT NULL,
   related_files TEXT,
-  embedding BLOB NOT NULL
+  embedding BLOB NOT NULL,
+  related_raw_event_ids TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_obs_project ON observations(project);
 """
+
+# ponytail: idempotent ALTER-per-open, not a migrations table — fine at two
+# columns; revisit with real migration versioning if this schema keeps growing.
+_MIGRATIONS = (
+    ("raw_events", "tool_response", "TEXT"),
+    ("observations", "related_raw_event_ids", "TEXT"),
+)
+
+
+def _migrate(conn):
+    for table, column, coltype in _MIGRATIONS:
+        try:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {coltype}")
+        except sqlite3.OperationalError as e:
+            if "duplicate column name" not in str(e):
+                raise
+    conn.commit()
 
 
 def get_connection(db_path=None):
@@ -35,6 +54,7 @@ def get_connection(db_path=None):
     conn = sqlite3.connect(path)
     conn.row_factory = sqlite3.Row
     conn.executescript(SCHEMA)
+    _migrate(conn)
     return conn
 
 
@@ -53,13 +73,21 @@ def derive_project(cwd: str) -> str:
     return cwd
 
 
-def insert_raw_event(conn, ts, session_id, project, tool_name, tool_input) -> int:
+def insert_raw_event(conn, ts, session_id, project, tool_name, tool_input, tool_response=None) -> int:
     cur = conn.execute(
-        "INSERT INTO raw_events (ts, session_id, project, tool_name, tool_input, processed) "
-        "VALUES (?, ?, ?, ?, ?, 0)",
-        (ts, session_id, project, tool_name, tool_input),
+        "INSERT INTO raw_events (ts, session_id, project, tool_name, tool_input, tool_response, processed) "
+        "VALUES (?, ?, ?, ?, ?, ?, 0)",
+        (ts, session_id, project, tool_name, tool_input, tool_response),
     )
     return cur.lastrowid
+
+
+def get_raw_events_by_ids(conn, ids: list) -> list:
+    if not ids:
+        return []
+    placeholders = ",".join("?" for _ in ids)
+    cur = conn.execute(f"SELECT * FROM raw_events WHERE id IN ({placeholders})", ids)
+    return [dict(row) for row in cur.fetchall()]
 
 
 def get_unprocessed_events(conn, session_id: str) -> list:
@@ -79,11 +107,15 @@ def mark_processed(conn, ids: list) -> None:
     )
 
 
-def insert_observation(conn, ts, session_id, project, category, summary, related_files, embedding) -> int:
+def insert_observation(
+    conn, ts, session_id, project, category, summary, related_files, embedding,
+    related_raw_event_ids=None,
+) -> int:
     cur = conn.execute(
-        "INSERT INTO observations (ts, session_id, project, category, summary, related_files, embedding) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?)",
-        (ts, session_id, project, category, summary, related_files, embedding),
+        "INSERT INTO observations "
+        "(ts, session_id, project, category, summary, related_files, embedding, related_raw_event_ids) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        (ts, session_id, project, category, summary, related_files, embedding, related_raw_event_ids),
     )
     return cur.lastrowid
 
