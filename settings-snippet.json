@@ -1,0 +1,13 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      { "hooks": [{ "type": "command", "command": "~/claude-mem-lite/.venv/bin/python3 ~/claude-mem-lite/capture.py" }] }
+    ],
+    "Stop": [
+      { "hooks": [{ "type": "command", "command": "~/claude-mem-lite/.venv/bin/python3 ~/claude-mem-lite/summarize_trigger.py" }] }
+    ],
+    "SessionStart": [
+      { "hooks": [{ "type": "command", "command": "~/claude-mem-lite/.venv/bin/python3 ~/claude-mem-lite/digest.py" }] }
+    ]
+  }
+}

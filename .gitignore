@@ -1,2 +1,9 @@
 .worktrees/
 .superpowers/
+.venv/
+.model-cache/
+store.db
+error.log
+__pycache__/
+*.pyc
+.pytest_cache/
