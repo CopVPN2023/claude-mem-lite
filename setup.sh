@@ -28,6 +28,10 @@ PY
 
 chmod +x capture.py summarize_trigger.py summarize_worker.py digest.py search.py
 
+echo "Installing mem-search skill..."
+mkdir -p "$HOME/.claude/skills"
+ln -sfn "$HERE/skills/mem-search" "$HOME/.claude/skills/mem-search"
+
 echo ""
 echo "Setup complete."
 echo "Add the following to ~/.claude/settings.json under its top-level \"hooks\" key"
