@@ -67,3 +67,92 @@ def test_parse_observations_non_list_returns_empty():
 def test_parse_observations_skips_items_missing_summary():
     response = '[{"category": "bugfix", "related_files": []}]'
     assert parse_observations(response) == []
+
+
+import json as jsonlib
+
+import summarize_worker
+from lib.db import get_connection, insert_raw_event, get_observations, get_unprocessed_events
+from lib.guard import NO_HOOKS_ENV
+
+
+def test_call_claude_headless_sets_guard_env_and_pipes_prompt(monkeypatch):
+    captured = {}
+
+    class FakeResult:
+        stdout = "[]"
+
+    def fake_run(cmd, input, capture_output, text, env, timeout):
+        captured["cmd"] = cmd
+        captured["input"] = input
+        captured["env"] = env
+        captured["timeout"] = timeout
+        return FakeResult()
+
+    monkeypatch.setattr(summarize_worker.subprocess, "run", fake_run)
+
+    result = summarize_worker.call_claude_headless("summarize this")
+
+    assert result == "[]"
+    assert captured["input"] == "summarize this"
+    assert captured["env"][NO_HOOKS_ENV] == "1"
+    assert captured["cmd"] == ["claude", "-p"]
+
+
+def test_main_writes_observations_and_marks_processed(tmp_path, monkeypatch):
+    db_path = str(tmp_path / "test.db")
+    conn = get_connection(db_path)
+    id1 = insert_raw_event(conn, "t", "sess1", "/proj", "Edit", "{}")
+    id2 = insert_raw_event(conn, "t", "sess1", "/proj", "Write", "{}")
+    id3 = insert_raw_event(conn, "t", "sess1", "/proj", "Bash", "{}")
+    conn.commit()
+    conn.close()
+
+    fake_response = jsonlib.dumps(
+        [{"category": "bugfix", "summary": "Fixed the thing", "related_files": ["a.py"]}]
+    )
+    monkeypatch.setattr(summarize_worker, "call_claude_headless", lambda prompt: fake_response)
+    monkeypatch.setattr(summarize_worker, "embed_text", lambda text: [0.1, 0.2, 0.3])
+
+    summarize_worker.main("sess1", db_path=db_path)
+
+    conn = get_connection(db_path)
+    observations = get_observations(conn, project="/proj")
+    assert len(observations) == 1
+    assert observations[0]["summary"] == "Fixed the thing"
+    assert get_unprocessed_events(conn, "sess1") == []
+
+
+def test_main_skips_when_below_threshold(tmp_path, monkeypatch):
+    db_path = str(tmp_path / "test.db")
+    conn = get_connection(db_path)
+    insert_raw_event(conn, "t", "sess1", "/proj", "Edit", "{}")
+    conn.commit()
+    conn.close()
+
+    called = {"count": 0}
+    monkeypatch.setattr(
+        summarize_worker, "call_claude_headless", lambda prompt: called.__setitem__("count", called["count"] + 1)
+    )
+
+    summarize_worker.main("sess1", db_path=db_path)
+
+    assert called["count"] == 0
+
+
+def test_main_marks_processed_even_when_llm_returns_nothing_noteworthy(tmp_path, monkeypatch):
+    db_path = str(tmp_path / "test.db")
+    conn = get_connection(db_path)
+    insert_raw_event(conn, "t", "sess1", "/proj", "Edit", "{}")
+    insert_raw_event(conn, "t", "sess1", "/proj", "Write", "{}")
+    insert_raw_event(conn, "t", "sess1", "/proj", "Bash", "{}")
+    conn.commit()
+    conn.close()
+
+    monkeypatch.setattr(summarize_worker, "call_claude_headless", lambda prompt: "[]")
+
+    summarize_worker.main("sess1", db_path=db_path)
+
+    conn = get_connection(db_path)
+    assert get_unprocessed_events(conn, "sess1") == []
+    assert get_observations(conn, project="/proj") == []

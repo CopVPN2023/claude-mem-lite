@@ -1,6 +1,16 @@
 #!/usr/bin/env python3
 import json
+import os
 import re
+import subprocess
+import sys
+from datetime import datetime, timezone
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+from lib.db import get_connection, get_unprocessed_events, mark_processed, insert_observation
+from lib.embeddings import embed_text, pack_embedding
+from lib.guard import NO_HOOKS_ENV
 
 READ_ONLY_TOOLS = {"Read", "Grep", "Glob", "WebSearch"}
 CATEGORIES = {"bugfix", "feature", "refactor", "change", "discovery", "decision", "security"}
@@ -53,3 +63,52 @@ def parse_observations(response_text: str) -> list:
             related_files = []
         results.append({"category": category, "summary": summary, "related_files": related_files})
     return results
+
+
+CLAUDE_TIMEOUT_SECONDS = 120
+
+
+def call_claude_headless(prompt: str) -> str:
+    env = os.environ.copy()
+    env[NO_HOOKS_ENV] = "1"
+    result = subprocess.run(
+        ["claude", "-p"],
+        input=prompt,
+        capture_output=True,
+        text=True,
+        env=env,
+        timeout=CLAUDE_TIMEOUT_SECONDS,
+    )
+    return result.stdout
+
+
+def main(session_id: str, db_path=None) -> None:
+    conn = get_connection(db_path)
+    events = get_unprocessed_events(conn, session_id)
+    if skip_summarization(events):
+        conn.close()
+        return
+
+    prompt = build_summarize_prompt(events)
+    response = call_claude_headless(prompt)
+    observations = parse_observations(response)
+
+    ts = datetime.now(timezone.utc).isoformat()
+    project = events[0]["project"]
+    for obs in observations:
+        vec = embed_text(obs["summary"])
+        blob = pack_embedding(vec)
+        insert_observation(
+            conn, ts, session_id, project,
+            obs["category"], obs["summary"],
+            json.dumps(obs["related_files"]), blob,
+        )
+
+    mark_processed(conn, [e["id"] for e in events])
+    conn.commit()
+    conn.close()
+
+
+if __name__ == "__main__":
+    main(sys.argv[1])
+    sys.exit(0)
