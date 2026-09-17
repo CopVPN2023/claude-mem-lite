@@ -34,6 +34,13 @@ save" rules).
 Non-goals for v1: multi-machine sync, a UI/dashboard beyond a CLI, retention
 / pruning policy, replicating claude-mem's token-savings analytics.
 
+**Post-v1 addition:** a knowledge agent (`knowledge_agent.py`) — see
+"Knowledge agent" under Architecture below — was added as a follow-up once
+the base system was built, reviewed, merged, and wired in. It mirrors one
+piece of claude-mem's own feature set (its `/knowledge-agent`) but, per the
+YAGNI stance below, without a separate corpus build/prime/rebuild pipeline:
+our `observations` table is already the corpus, embedded at write time.
+
 ## Architecture
 
 ```
@@ -51,6 +58,11 @@ Claude Code session
    └─ SessionStart hook ──► digest.py ──► stdout ──► injected as context
                                 │
    (on demand, via Skill) ──► search.py "query" ──► ranked observations
+                                │
+   (on demand, via Skill) ──► knowledge_agent.py "question"
+                                ├─ search.py's ranking (reused, not duplicated)
+                                └─ claude -p (headless, guarded) ──► one cited,
+                                      synthesized answer over the top matches
 ```
 
 ### Storage
@@ -157,6 +169,43 @@ revisited only if it ever actually gets slow.
 Wrapped in a Skill (`mem-search` or similar) so I have clear, consistent
 instructions for when and how to call it via Bash, mirroring how I already
 use `claude-mem`'s own search tools today.
+
+### Knowledge agent — on-demand synthesis
+
+`search.py` returns raw ranked hits — the right tool when the question is
+"find me the entries about X." Some questions instead need synthesis across
+several observations ("what have I actually done about X", "did we ever fix
+Y"), where reading N raw hits yourself is worse than one synthesized answer.
+
+`knowledge_agent.py "question" [--project X] [--limit N]`:
+1. Embeds the question and retrieves the top N observations via the same
+   ranking `search.py` already implements (imported directly — no
+   duplicated retrieval logic, no separate index/corpus to keep in sync).
+2. If nothing exists at all for the given scope, prints a short message and
+   returns — no LLM call spent on an empty store.
+3. Otherwise builds a prompt from the retrieved observations' summaries,
+   categories, and related files, and calls headless `claude -p` (the same
+   guarded invocation as the summarization stage: recursion guard env var,
+   pinned `--model`, `--strict-mcp-config`) asking for a conversational
+   answer that cites observation IDs.
+4. Prints the synthesized answer to stdout.
+
+This is an on-demand, interactive tool, not a background hook: unlike
+`capture.py`/`summarize.py`/`digest.py`, a `claude -p` failure here fails
+loud (clear stderr message, non-zero exit) rather than silently — there's a
+person waiting on the answer, not a turn boundary to avoid blocking.
+
+Known side effect, inherited from the summarization stage's nested-call
+design and not specific to this feature: the nested `claude -p` call still
+runs the user's *other* global hooks (e.g. claude-mem's own `SessionStart`
+hook), since our recursion guard only suppresses our own scripts and
+`--strict-mcp-config` only restricts MCP servers, not hooks. Harmless
+today — worth revisiting only if another plugin's hook output starts
+polluting answers more than cosmetically.
+
+Wrapped in its own Skill (`knowledge-agent`), cross-referenced from
+`mem-search`'s so the right one gets picked regardless of which is found
+first.
 
 ### Recall UX — `SessionStart` hook
 
