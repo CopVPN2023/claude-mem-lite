@@ -40,8 +40,10 @@ Claude Code session
    │
    └─ SessionStart hook ──► digest.py ──► stdout ──► injected as context
 
-   (on demand) ──► search.py "query"          ──► ranked raw hits
+   (on demand) ──► search.py "query"            ──► ranked raw hits
+   (on demand) ──► timeline.py --anchor/--query  ──► chronological context
    (on demand) ──► knowledge_agent.py "question" ──► synthesized, cited answer
+   (on demand) ──► get_tool_uses.py --ids ...    ──► raw tool_input/tool_response
 ```
 
 Everything lives in one SQLite database, `store.db`, shared across every
@@ -59,8 +61,9 @@ cd ~/claude-mem-lite
 ```
 
 This creates a venv, installs `fastembed` + `numpy`, initializes
-`store.db`, warms the embedding model, and installs the `mem-search` and
-`knowledge-agent` skills as symlinks into `~/.claude/skills/`. At the end
+`store.db`, warms the embedding model, and installs the `mem-search`,
+`knowledge-agent`, `timeline`, and `get-tool-uses` skills as symlinks into
+`~/.claude/skills/`. At the end
 it prints the hooks snippet — merge it into `~/.claude/settings.json`
 under the top-level `"hooks"` key (append to any arrays you already have
 there for `PostToolUse` / `Stop` / `SessionStart`, don't overwrite them):
@@ -89,6 +92,13 @@ there for `PostToolUse` / `Stop` / `SessionStart`, don't overwrite them):
 ~/claude-mem-lite/.venv/bin/python3 ~/claude-mem-lite/search.py "<query>" [--project <path>] [--limit N]
 ```
 
+**Timeline** — chronological context around a specific observation, no LLM call:
+
+```bash
+~/claude-mem-lite/.venv/bin/python3 ~/claude-mem-lite/timeline.py --anchor <id> [--before N] [--after N]
+~/claude-mem-lite/.venv/bin/python3 ~/claude-mem-lite/timeline.py --query "<text>" [--before N] [--after N]
+```
+
 **Knowledge agent** — one `claude -p` call to synthesize a conversational,
 cited answer across the top matches instead of a raw list:
 
@@ -96,16 +106,28 @@ cited answer across the top matches instead of a raw list:
 ~/claude-mem-lite/.venv/bin/python3 ~/claude-mem-lite/knowledge_agent.py "<question>" [--project <path>] [--limit N]
 ```
 
-Both are also wrapped as skills (`mem-search`, `knowledge-agent`) so
-Claude picks the right one on its own — raw hits for "find me the entries
-about X", synthesis for "what have I actually done about X".
+**Raw tool-use lookup** — the exact `tool_input`/`tool_response` bytes an
+observation only summarized (use its `related_raw_event_ids`):
+
+```bash
+~/claude-mem-lite/.venv/bin/python3 ~/claude-mem-lite/get_tool_uses.py --ids <id1,id2,...>
+```
+
+All four are also wrapped as skills (`mem-search`, `timeline`,
+`knowledge-agent`, `get-tool-uses`), each pointing to the right neighbor,
+so Claude picks the right one on its own — raw hits for "find me the
+entries about X", context for "what led up to this", synthesis for "what
+have I actually done about X", raw bytes for "what did that command
+actually output".
 
 ## Status
 
 All 11 build tasks, a final whole-branch review, one fix wave, a scoped
 re-review, and the live `settings.json` wiring are complete and verified
-end-to-end (see `git log` for the full history). The knowledge agent was
-added afterward as a follow-up feature.
+end-to-end (see `git log` for the full history). `knowledge_agent.py`,
+`timeline.py`, and `get_tool_uses.py` were added afterward as follow-up
+features, each followed by a second whole-codebase review and its own
+consolidated fix wave.
 
 One known, non-blocking issue: the lock file that prevents concurrent
 `summarize_worker.py` runs doesn't carry an ownership token, so a run that
