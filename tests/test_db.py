@@ -1,4 +1,5 @@
 import sqlite3
+import stat
 import subprocess
 from lib.db import (
     get_connection,
@@ -21,6 +22,14 @@ def test_get_connection_creates_schema(tmp_path):
     }
     assert "raw_events" in tables
     assert "observations" in tables
+
+
+def test_get_connection_restricts_file_permissions_to_owner(tmp_path):
+    db_path = tmp_path / "test.db"
+    conn = get_connection(str(db_path))
+    conn.close()
+    mode = stat.S_IMODE(db_path.stat().st_mode)
+    assert mode == 0o600
 
 
 def test_derive_project_inside_git_repo(tmp_path):
@@ -146,6 +155,19 @@ def test_migration_adds_new_columns_to_a_legacy_database(tmp_path):
         );
         """
     )
+    # Seed real rows through the OLD schema (no tool_response/related_raw_event_ids
+    # columns exist yet, so the new insert_* helpers can't be used here).
+    embedding_bytes = b"\x01\x02\x03\x04not-really-a-vector"
+    legacy_conn.execute(
+        "INSERT INTO raw_events (id, ts, session_id, project, tool_name, tool_input, processed) "
+        "VALUES (1, 't1', 'sess1', '/proj', 'Edit', '{\"file\": \"a.py\"}', 0)"
+    )
+    legacy_conn.execute(
+        "INSERT INTO observations (id, ts, session_id, project, category, summary, related_files, embedding) "
+        "VALUES (1, 't1', 'sess1', '/proj', 'bugfix', 'Fixed the thing', '[\"a.py\"]', ?)",
+        (embedding_bytes,),
+    )
+    legacy_conn.commit()
     legacy_conn.close()
 
     conn = get_connection(db_path)  # should migrate in place, not error
@@ -155,8 +177,27 @@ def test_migration_adds_new_columns_to_a_legacy_database(tmp_path):
     assert "tool_response" in raw_columns
     assert "related_raw_event_ids" in obs_columns
 
-    # And the migration is idempotent — opening it again must not raise.
-    get_connection(db_path)
+    # The pre-existing rows must survive the migration intact.
+    raw_row = conn.execute("SELECT * FROM raw_events WHERE id = 1").fetchone()
+    assert raw_row["session_id"] == "sess1"
+    assert raw_row["tool_name"] == "Edit"
+    assert raw_row["tool_input"] == '{"file": "a.py"}'
+    assert raw_row["tool_response"] is None  # new column, backfilled NULL
+
+    obs_row = conn.execute("SELECT * FROM observations WHERE id = 1").fetchone()
+    assert obs_row["summary"] == "Fixed the thing"
+    assert obs_row["category"] == "bugfix"
+    assert obs_row["embedding"] == embedding_bytes  # byte-identical, not just present
+    assert obs_row["related_raw_event_ids"] is None
+
+    conn.close()
+
+    # And the migration is idempotent with real data: opening it again must not
+    # raise, and must not duplicate or lose the rows already there.
+    conn2 = get_connection(db_path)
+    assert conn2.execute("SELECT COUNT(*) FROM raw_events").fetchone()[0] == 1
+    assert conn2.execute("SELECT COUNT(*) FROM observations").fetchone()[0] == 1
+    conn2.close()
 
 
 def test_insert_raw_event_stores_tool_response(tmp_path):

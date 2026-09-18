@@ -25,7 +25,10 @@ Returns `before + 1 + after` observations (default 3 each side) in
 chronological order as JSON, the same shape as `mem-search`'s hits plus
 `"is_anchor": true` on the centered one. No LLM call — pure retrieval,
 same as `mem-search`. Prints `[]` if the anchor can't be resolved (bad id,
-empty store, no query match) rather than erroring.
+empty store, no query match, or — the most likely case in practice — a
+valid id that just doesn't belong to the `--project` you filtered to,
+since ids typically come from an unscoped `mem-search` result) rather than
+erroring.
 
 This also doubles as a lookup-by-id: `--anchor <id> --before 0 --after 0`
 returns just that one observation, e.g. to get the `related_raw_event_ids`

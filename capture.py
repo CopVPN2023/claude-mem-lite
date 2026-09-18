@@ -17,7 +17,7 @@ def main(db_path=None):
     if hooks_disabled():
         return
     try:
-        payload = json.load(sys.stdin)
+        payload = json.load(sys.stdin, strict=False)
         session_id = payload.get("session_id", "unknown")
         cwd = payload.get("cwd", os.getcwd())
         tool_name = payload.get("tool_name", "")

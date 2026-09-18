@@ -118,6 +118,9 @@ tracked as follow-up debt, not fixed yet.
 
 Everything stays local in `~/claude-mem-lite/store.db` — nothing is
 transmitted anywhere except the short summarization prompt sent to your
-own `claude -p` call. That file can contain fragments of commands and code
-from your sessions, the same as shell history; it's git-ignored, but worth
-remembering if you ever share this machine or repo.
+own `claude -p` call. Unlike shell history, this also captures raw tool
+*output* — file contents from a `Read`, command stdout from a `Bash` call —
+not just what you typed. A `Read` of a secrets file, or a `printenv`, now
+has its contents on disk here. The database file is restricted to your own
+user (`chmod 600`, applied automatically) and is git-ignored, but be
+mindful of what that means if you ever share this machine or repo.

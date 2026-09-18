@@ -253,8 +253,13 @@ necessarily final syntax.)
   once at install time (see below), not lazily mid-session, so a session
   is never blocked on a multi-hundred-MB download.
 - **Privacy** — everything stays local in `~/claude-mem-lite/store.db`,
-  nothing is transmitted anywhere. Worth remembering this file can contain
-  fragments of commands/code you've run, same as your shell history.
+  nothing is transmitted anywhere. Unlike shell history, this also captures
+  tool *output* (`tool_response`) — file contents from a `Read`, command
+  stdout from a `Bash` call — not just the command/input. A `Read` of a
+  secrets file or a `printenv` now has its output on disk here. The file's
+  permissions are restricted to the owning user (`chmod 600`, applied by
+  `get_connection()`), but be mindful of what that means if this machine or
+  repo is ever shared.
 
 ## Install
 

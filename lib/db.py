@@ -1,3 +1,4 @@
+import os
 import sqlite3
 import subprocess
 from pathlib import Path
@@ -53,8 +54,15 @@ def get_connection(db_path=None):
     path = str(db_path) if db_path else str(DB_PATH)
     conn = sqlite3.connect(path)
     conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA busy_timeout=5000")
     conn.executescript(SCHEMA)
     _migrate(conn)
+    if path != ":memory:":
+        try:
+            os.chmod(path, 0o600)
+        except OSError:
+            pass
     return conn
 
 

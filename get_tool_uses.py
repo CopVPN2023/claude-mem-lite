@@ -16,22 +16,28 @@ def main(argv=None, db_path=None) -> None:
     parser.add_argument("--ids", required=True, help="Comma-separated raw_events ids")
     args = parser.parse_args(argv)
 
-    try:
-        ids = [int(x) for x in args.ids.split(",") if x.strip()]
-    except ValueError:
-        ids = []
+    ids = []
+    for x in args.ids.split(","):
+        x = x.strip()
+        if not x:
+            continue
+        try:
+            ids.append(int(x))
+        except ValueError:
+            continue
 
     conn = get_connection(db_path)
     rows = get_raw_events_by_ids(conn, ids)
     conn.close()
 
+    by_id = {r["id"]: r for r in rows}
     results = [
         {
             "id": r["id"], "ts": r["ts"], "project": r["project"],
             "tool_name": r["tool_name"], "tool_input": r["tool_input"],
             "tool_response": r["tool_response"],
         }
-        for r in rows
+        for i in ids if (r := by_id.get(i)) is not None
     ]
     print(json.dumps(results, indent=2))
 

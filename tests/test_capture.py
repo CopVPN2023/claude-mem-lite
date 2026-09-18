@@ -77,6 +77,25 @@ def test_capture_truncates_large_tool_response(tmp_path, monkeypatch):
     assert len(events[0]["tool_response"]) <= capture.TOOL_RESPONSE_TRUNCATE
 
 
+def test_capture_tolerates_raw_control_character_in_payload(tmp_path, monkeypatch):
+    db_path = tmp_path / "test.db"
+    # A literal, unescaped control character inside a JSON string value is
+    # technically invalid JSON but real hook payloads have contained one
+    # (see error.log). json.load(strict=False) should tolerate it.
+    raw = (
+        '{"session_id": "sess1", "cwd": ' + json.dumps(str(tmp_path)) +
+        ', "tool_name": "Bash", "tool_input": {"command": "echo\x01hi"}}'
+    )
+    monkeypatch.setattr("sys.stdin", io.StringIO(raw))
+
+    capture.main(db_path=str(db_path))
+
+    conn = get_connection(str(db_path))
+    events = get_unprocessed_events(conn, "sess1")
+    assert len(events) == 1
+    assert events[0]["tool_name"] == "Bash"
+
+
 def test_capture_never_raises_on_malformed_stdin(tmp_path, monkeypatch):
     db_path = tmp_path / "test.db"
     monkeypatch.setattr("sys.stdin", io.StringIO("not json"))

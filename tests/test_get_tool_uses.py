@@ -35,3 +35,34 @@ def test_main_ignores_unparseable_ids(tmp_path, capsys):
     get_tool_uses.main(["--ids", "not-a-number"], db_path=db_path)
     captured = capsys.readouterr()
     assert json.loads(captured.out) == []
+
+
+def test_main_keeps_valid_ids_when_one_token_is_unparseable(tmp_path, capsys):
+    db_path = str(tmp_path / "test.db")
+    conn = get_connection(db_path)
+    id1 = insert_raw_event(conn, "t", "s", "/proj", "Bash", "{}", tool_response="r1")
+    id3 = insert_raw_event(conn, "t", "s", "/proj", "Edit", "{}", tool_response="r3")
+    conn.commit()
+    conn.close()
+
+    get_tool_uses.main(["--ids", f"{id1},oops,{id3}"], db_path=db_path)
+
+    captured = capsys.readouterr()
+    results = json.loads(captured.out)
+    assert {r["id"] for r in results} == {id1, id3}
+
+
+def test_main_preserves_requested_id_order(tmp_path, capsys):
+    db_path = str(tmp_path / "test.db")
+    conn = get_connection(db_path)
+    id1 = insert_raw_event(conn, "t", "s", "/proj", "Bash", "{}", tool_response="r1")
+    id2 = insert_raw_event(conn, "t", "s", "/proj", "Edit", "{}", tool_response="r2")
+    id3 = insert_raw_event(conn, "t", "s", "/proj", "Read", "{}", tool_response="r3")
+    conn.commit()
+    conn.close()
+
+    get_tool_uses.main(["--ids", f"{id3},{id2},{id1}"], db_path=db_path)
+
+    captured = capsys.readouterr()
+    results = json.loads(captured.out)
+    assert [r["id"] for r in results] == [id3, id2, id1]

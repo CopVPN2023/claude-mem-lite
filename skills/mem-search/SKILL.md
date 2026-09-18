@@ -29,10 +29,13 @@ Run:
 ```
 
 Returns a JSON array of matches ordered by relevance, each with `id`, `ts`,
-`project`, `category`, `summary`, and `related_raw_event_ids` (the raw tool
-calls summarized into it — feed these to `get-tool-uses` for the literal
-bytes). Omit `--project` to search across every project; pass the current
-project's git root to scope to just it.
+`project`, `category`, `summary`, and `related_raw_event_ids` (every raw
+tool call from the same turn — shared by every observation that turn
+produced, not unique per observation; feed these to `get-tool-uses` for the
+literal bytes). This can be a lot of ids at once — one real turn produced 46
+raw events shared across 3 observations, ~21KB if all fetched. Omit
+`--project` to search across every project; pass the current project's git
+root to scope to just it.
 
 Cross-check anything safety-relevant against the actual code or git history
 before relying on it — this log is a memory aid, not a source of truth.
