@@ -26,7 +26,7 @@ embed_text("warmup")
 print("Embedding model ready.")
 PY
 
-chmod +x capture.py summarize_trigger.py summarize_worker.py digest.py search.py knowledge_agent.py timeline.py get_tool_uses.py
+chmod +x capture.py summarize_trigger.py summarize_worker.py digest.py search.py knowledge_agent.py timeline.py get_tool_uses.py timeline_report.py
 
 echo "Installing mem-search skill..."
 mkdir -p "$HOME/.claude/skills"
@@ -40,6 +40,9 @@ ln -sfn "$HERE/skills/timeline" "$HOME/.claude/skills/timeline"
 
 echo "Installing get-tool-uses skill..."
 ln -sfn "$HERE/skills/get-tool-uses" "$HOME/.claude/skills/get-tool-uses"
+
+echo "Installing timeline-report skill..."
+ln -sfn "$HERE/skills/timeline-report" "$HOME/.claude/skills/timeline-report"
 
 echo ""
 echo "Setup complete."

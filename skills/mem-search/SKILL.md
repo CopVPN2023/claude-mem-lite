@@ -20,7 +20,9 @@ answer. If a specific hit needs its surrounding chronological context
 skill instead of re-searching around the same date. If a hit's `summary`
 isn't precise enough and you need the literal command output or diff
 behind it, use the `get-tool-uses` skill with that hit's
-`related_raw_event_ids`.
+`related_raw_event_ids`. If you want a narrative history of the *whole*
+project rather than specific hits, use the `timeline-report` skill
+instead — it reads every observation, not a ranked top-N.
 
 Run:
 
